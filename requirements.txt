@@ -14,3 +14,5 @@ lightgbm==4.6.0
 torch==2.9.1
 transformers==4.57.3
 torchvision==0.24.1
+aesthetic_predictor==0.1.2
+torchmetrics==1.8.2
