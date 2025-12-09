@@ -11,8 +11,12 @@ seaborn==0.13.2
 scikit-learn==1.7.2
 scipy==1.16.3
 lightgbm==4.6.0
-torch==2.9.1
+torch==2.7.1+cu118
+torchvision==0.22.1+cu118
+torchaudio==2.7.1+cu118
 transformers==4.57.3
-torchvision==0.24.1
-aesthetic_predictor==0.1.2
 torchmetrics==1.8.2
+emoji==2.15.0
+bitsandbytes==0.48.2
+accelerate==1.12.0
+aesthetic_predictor==0.1.2

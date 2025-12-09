@@ -1,4 +1,6 @@
 inwork/
 lesson4/images/
 .venv
-lesson5/
+datasets/
+lesson5/qwen-lora-enhanced
+lesson5/train_prompts.jsonl
