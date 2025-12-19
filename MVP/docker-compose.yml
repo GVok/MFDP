@@ -1,0 +1,85 @@
+services:
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - "11434:11434"
+    volumes:
+      - ./data/ollama:/root/.ollama
+    environment:
+      - OLLAMA_HOST=0.0.0.0:11434
+    restart: on-failure
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - capabilities: [gpu]
+
+  app:
+    build:
+      context: ./app
+      dockerfile: Dockerfile
+    container_name: mvp_app
+    env_file:
+      - ./.env
+    volumes:
+      - ./app:/app
+      - ./data:/data
+    depends_on:
+      - database
+      - rabbitmq
+      - ollama
+    environment:
+      - PYTHONPATH=/app
+    restart: on-failure
+
+  worker:
+    build:
+      context: ./worker
+      dockerfile: Dockerfile
+    env_file:
+      - ./.env
+    volumes:
+      - ./app:/app:ro
+      - ./worker:/worker
+      - ./app/models_store:/models_store:ro
+      - ./data:/data
+    depends_on:
+      - rabbitmq
+      - database
+      - ollama
+    environment:
+      - PYTHONPATH=/app:/worker
+    restart: on-failure
+
+  web-proxy:
+    image: nginx:latest
+    container_name: mvp_web_proxy
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - app
+    ports:
+      - "80:80"
+      - "443:443"
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: mvp_rabbitmq
+    ports:
+      - "15672:15672"
+      - "5672:5672"
+    volumes:
+      - ./data/rabbitmq:/var/lib/rabbitmq
+    restart: on-failure
+
+  database:
+    image: postgres:14
+    container_name: mvp_database
+    env_file:
+      - ./.env
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./data/postgres:/var/lib/postgresql/data
+
+# docker compose up --build --scale worker=num *num число воркеров
