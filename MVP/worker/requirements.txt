@@ -7,7 +7,8 @@ pandas==2.2.2
 joblib==1.4.2
 requests
 emoji==2.15.0
-huggingface-hub==0.27.1
-torch
 transformers
 pillow
+diffusers
+accelerate
+safetensors

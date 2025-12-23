@@ -1,0 +1,377 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="panel">
+  <h2 class="h2">Account</h2>
+
+  <div class="grid2">
+    <div class="card">
+      <div class="card-title">Profile</div>
+      <div class="kv">
+        <div class="k">Username</div><div class="v">{{ user.username }}</div>
+        <div class="k">Email</div><div class="v">{{ user.email }}</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Wallet</div>
+      <div class="big">
+        <span class="muted">Balance</span>
+        <div class="amount">{{ balance_rub }} ₽</div>
+      </div>
+      <a class="btn primary" href="/account/topup">Top up</a>
+    </div>
+  </div>
+
+  <div class="spacer"></div>
+
+  <div class="card">
+    <div class="card-title">Brand profiles</div>
+
+    {% if bp_ok %}
+      <div class="notice ok">{{ bp_ok }}</div>
+    {% endif %}
+    {% if bp_err %}
+      <div class="notice err">{{ bp_err }}</div>
+    {% endif %}
+
+    {% if not bp_can_manage %}
+      <div class="muted">
+        Not available on your plan. Upgrade to <b>Business</b> or <b>Pro</b>.
+      </div>
+    {% else %}
+      <div class="muted" style="margin-bottom:10px;">
+        Limit: <b>{{ bp_used }}</b> / <b>{{ bp_limit }}</b>
+        · Keep it short (recommended ≤ 350 chars) to stay fast on 1060.
+      </div>
+
+      {% if brand_profiles %}
+        <div class="bp-list">
+          {% for bp in brand_profiles %}
+            <div class="bp-item">
+              <div>
+                <div class="bp-name">{{ bp.name }}</div>
+                {% if bp.style_short %}
+                  <div class="bp-style">{{ bp.style_short }}</div>
+                {% else %}
+                  <div class="bp-style muted">No style_short (empty)</div>
+                {% endif %}
+              </div>
+
+              <form method="post" action="/account/brand-profiles/{{ bp.id }}/delete">
+                <button class="btn small" type="submit">Delete</button>
+              </form>
+            </div>
+          {% endfor %}
+        </div>
+      {% else %}
+        <div class="muted">No brand profiles yet.</div>
+      {% endif %}
+
+      <div class="spacer"></div>
+
+      {% if bp_can_create %}
+        <div class="bp-create">
+          <div class="card-title" style="margin-bottom:8px;">Create new</div>
+
+          <form method="post" action="/account/brand-profiles/create" class="form" id="bpForm">
+            <label class="label">Name</label>
+            <input class="input" type="text" name="name" maxlength="80" required>
+
+            <div class="grid3">
+              <div>
+                <label class="label">Mood</label>
+                <select class="select" name="mood" id="bpMood">
+                  <option value="">—</option>
+                  <option value="minimal">minimal</option>
+                  <option value="premium">premium</option>
+                  <option value="playful">playful</option>
+                  <option value="brutal">brutal</option>
+                  <option value="clean">clean</option>
+                  <option value="elegant">elegant</option>
+                  <option value="futuristic">futuristic</option>
+                  <option value="cozy">cozy</option>
+                </select>
+              </div>
+
+              <div>
+                <label class="label">Category</label>
+                <select class="select" name="category" id="bpCategory">
+                  <option value="">—</option>
+                  <option value="food">food</option>
+                  <option value="beauty">beauty</option>
+                  <option value="fashion">fashion</option>
+                  <option value="tech">tech</option>
+                  <option value="real_estate">real_estate</option>
+                  <option value="fitness">fitness</option>
+                  <option value="restaurant">restaurant</option>
+                  <option value="ecommerce">ecommerce</option>
+                  <option value="education">education</option>
+                  <option value="travel">travel</option>
+                </select>
+              </div>
+
+              <div>
+                <label class="label">Lighting</label>
+                <select class="select" name="lighting" id="bpLighting">
+                  <option value="">—</option>
+                  <option value="soft_studio">soft studio</option>
+                  <option value="natural_daylight">natural</option>
+                  <option value="cinematic">cinematic</option>
+                  <option value="high_key">high key</option>
+                  <option value="low_key">low key</option>
+                  <option value="neon_glow">neon glow</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="grid3" style="margin-top:10px;">
+              <div>
+                <label class="label">Color vibe</label>
+                <select class="select" name="color_vibe" id="bpColor">
+                  <option value="">—</option>
+                  <option value="purple_gradient">purple gradient</option>
+                  <option value="pastel">pastel</option>
+                  <option value="monochrome">monochrome</option>
+                  <option value="warm">warm</option>
+                  <option value="cold">cool</option>
+                  <option value="earthy">earthy</option>
+                  <option value="vibrant">vibrant</option>
+                  <option value="neutral">neutral</option>
+                </select>
+              </div>
+
+              <div>
+                <label class="label">Composition</label>
+                <select class="select" name="composition" id="bpComp">
+                  <option value="">—</option>
+                  <option value="centered">centered</option>
+                  <option value="rule_of_thirds">rule of thirds</option>
+                  <option value="lots_of_copy_space">copy space</option>
+                  <option value="product_focus">product focus</option>
+                  <option value="close_up">close up</option>
+                  <option value="wide_scene">wide scene</option>
+                </select>
+              </div>
+
+              <div>
+                <label class="label">No explicit color codes</label>
+                <label class="muted" style="display:flex; gap:8px; align-items:center; margin-top:6px;">
+                  <input type="checkbox" name="no_color_codes" value="1" checked id="bpNoCodes">
+                  enabled
+                </label>
+              </div>
+            </div>
+
+            <div style="margin-top:10px;">
+              <div class="card-title" style="margin-bottom:8px;">Materials / texture</div>
+              <div class="chips">
+                <label class="chip"><input type="checkbox" name="materials" value="glossy"> glossy</label>
+                <label class="chip"><input type="checkbox" name="materials" value="matte"> matte</label>
+                <label class="chip"><input type="checkbox" name="materials" value="metallic"> metallic</label>
+                <label class="chip"><input type="checkbox" name="materials" value="glass"> glass</label>
+                <label class="chip"><input type="checkbox" name="materials" value="paper"> paper</label>
+                <label class="chip"><input type="checkbox" name="materials" value="plastic"> plastic</label>
+                <label class="chip"><input type="checkbox" name="materials" value="fabric"> fabric</label>
+                <label class="chip"><input type="checkbox" name="materials" value="ceramic"> ceramic</label>
+              </div>
+            </div>
+
+            <div style="margin-top:10px;">
+              <div class="card-title" style="margin-bottom:8px;">Avoid</div>
+              <div class="chips">
+                <label class="chip"><input type="checkbox" name="avoid" value="clutter"> clutter</label>
+                <label class="chip"><input type="checkbox" name="avoid" value="text"> text</label>
+                <label class="chip"><input type="checkbox" name="avoid" value="faces"> faces</label>
+                <label class="chip"><input type="checkbox" name="avoid" value="hands"> hands</label>
+                <label class="chip"><input type="checkbox" name="avoid" value="logos"> logos</label>
+                <label class="chip"><input type="checkbox" name="avoid" value="watermark"> watermark</label>
+                <label class="chip"><input type="checkbox" name="avoid" value="busy_background"> busy bg</label>
+              </div>
+            </div>
+
+            <div class="spacer"></div>
+
+            <div class="card">
+              <div class="card-title">Generated style_short (preview)</div>
+              <div class="mono" id="bpPreview"></div>
+              <div class="muted" style="margin-top:8px;">
+                <span id="bpCount">0</span> / 350
+              </div>
+            </div>
+
+            <div class="row" style="margin-top:10px;">
+              <button class="btn primary" type="submit">Create</button>
+            </div>
+          </form>
+
+          <div class="muted" style="margin-top:8px;">
+            Tip: use dropdowns/chips; keep it compact to reduce tokens/latency.
+          </div>
+
+          <script>
+          (function () {
+            const limit = 350;
+            const preview = document.getElementById("bpPreview");
+            const count = document.getElementById("bpCount");
+            const form = document.getElementById("bpForm");
+
+            if (!form || !preview || !count) return;
+
+            function pickText(selId, map) {
+              const el = document.getElementById(selId);
+              const v = (el && el.value ? el.value : "").trim();
+              return map[v] || "";
+            }
+
+            function checkedValues(name) {
+              return Array.from(form.querySelectorAll(`input[name="${name}"]:checked`)).map(x => x.value);
+            }
+
+            const MAP = {
+              mood: {
+                minimal:"minimal", premium:"premium", playful:"playful", brutal:"brutal",
+                clean:"clean", elegant:"elegant", futuristic:"futuristic", cozy:"cozy"
+              },
+              category: {
+                food:"food photography",
+                beauty:"beauty cosmetic aesthetic",
+                fashion:"fashion editorial",
+                tech:"modern tech visual",
+                real_estate:"real estate showcase",
+                fitness:"fitness campaign",
+                restaurant:"restaurant promo",
+                ecommerce:"e-commerce product visual",
+                education:"education promo visual",
+                travel:"travel lifestyle"
+              },
+              lighting: {
+                soft_studio:"soft studio light",
+                natural_daylight:"natural daylight",
+                cinematic:"cinematic lighting",
+                high_key:"high key lighting",
+                low_key:"low key lighting",
+                neon_glow:"subtle neon glow"
+              },
+              color: {
+                purple_gradient:"soft purple gradient vibe",
+                pastel:"pastel color vibe",
+                monochrome:"monochrome palette",
+                warm:"warm palette",
+                cold:"cool palette",
+                earthy:"earthy tones",
+                vibrant:"vibrant accents",
+                neutral:"neutral palette"
+              },
+              composition: {
+                centered:"centered composition",
+                rule_of_thirds:"rule of thirds composition",
+                lots_of_copy_space:"lots of copy space",
+                product_focus:"product-focused framing",
+                close_up:"close-up framing",
+                wide_scene:"wide scene composition"
+              },
+              materials: {
+                glossy:"glossy", matte:"matte", metallic:"metallic", glass:"glass",
+                paper:"paper", plastic:"plastic", fabric:"fabric", ceramic:"ceramic"
+              },
+              avoid: {
+                clutter:"clutter", text:"text", faces:"faces", hands:"hands",
+                logos:"logos", watermark:"watermark", busy_background:"busy background"
+              }
+            };
+
+            function rebuild() {
+              const parts = [];
+
+              const mood = pickText("bpMood", MAP.mood);
+              const cat  = pickText("bpCategory", MAP.category);
+              const light= pickText("bpLighting", MAP.lighting);
+              const col  = pickText("bpColor", MAP.color);
+              const comp = pickText("bpComp", MAP.composition);
+
+              if (mood) parts.push(mood);
+              if (cat) parts.push(cat);
+              if (light) parts.push(light);
+              if (col) parts.push(col);
+              if (comp) parts.push(comp);
+
+              const mats = checkedValues("materials").filter(x => MAP.materials[x]).map(x => MAP.materials[x]);
+              if (mats.length) parts.push("materials: " + mats.join(" + "));
+
+              const av = checkedValues("avoid").filter(x => MAP.avoid[x]).map(x => MAP.avoid[x]);
+              if (av.length) parts.push("avoid " + av.join(" + "));
+
+              const noCodes = document.getElementById("bpNoCodes")?.checked;
+              if (noCodes) parts.push("no explicit color codes");
+
+              let s = parts.join(", ").trim();
+              if (s.length > limit) s = s.slice(0, limit).replace(/[ ,]+$/,"");
+
+              preview.textContent = s || "(empty)";
+              count.textContent = String(s ? s.length : 0);
+            }
+
+            form.addEventListener("change", rebuild);
+            form.addEventListener("input", rebuild);
+            rebuild();
+          })();
+          </script>
+        </div>
+      {% else %}
+        <div class="notice muted">
+          Limit reached. Delete one profile or upgrade plan.
+        </div>
+      {% endif %}
+
+    {% endif %}
+  </div>
+
+  <div class="spacer"></div>
+
+  <div class="card">
+    <div class="card-title">Subscription</div>
+    <div class="subline">
+      Current plan: <span class="pill">{{ current_plan.code }}</span>
+    </div>
+
+    <div class="plans">
+      {% for p in plans_ui %}
+        <div class="plan-card">
+          <div class="plan-head">
+            <div class="plan-name">{{ p.code|capitalize }}</div>
+            <div class="plan-price">{{ p.price_rub }} ₽ / 30d</div>
+          </div>
+
+          <div class="plan-feats">
+            <div class="feat">Auto prompt enhance: <b>{{ "yes" if p.features.auto_prompt_enhance else "no" }}</b></div>
+            <div class="feat">Auto best selection: <b>{{ "yes" if p.features.auto_best_selection else "no" }}</b></div>
+            <div class="feat">Brand profiles: <b>{{ p.features.brand_profiles_limit }}</b></div>
+            <div class="feat">LoRA / month: <b>{{ p.features.lora_per_month }}</b></div>
+          </div>
+
+          {% if p.action == "current" %}
+            <div class="notice ok">Current plan</div>
+            <button class="btn" disabled>Active</button>
+
+          {% elif p.action == "blocked" %}
+            <div class="notice muted">You already have this plan or better</div>
+            <button class="btn" disabled>Not available</button>
+
+          {% elif p.action == "no_money" %}
+            <div class="notice err">Insufficient balance</div>
+            <button class="btn" disabled>Buy</button>
+
+          {% else %}
+            <form method="post" action="/account/subscribe">
+              <input type="hidden" name="plan" value="{{ p.code }}">
+              <button class="btn primary" type="submit">Buy</button>
+            </form>
+          {% endif %}
+        </div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+
+{% endblock %}

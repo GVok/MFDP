@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>{{ title or "MVP" }}</title>
+  <link rel="stylesheet" href="/static/css/main.css">
+</head>
+<body>
+  <div class="shell">
+    <div class="topbar">
+      <div class="brand">MVP Prompt Enhancer</div>
+
+      <div class="right">
+        <a class="btn small ghost" href="/">Home</a>
+
+        {% if user %}
+          <a class="btn small ghost" href="/app">App</a>
+          <a class="btn small ghost" href="/account">Account</a>
+          <span class="muted">{{ user.username }}</span>
+          <a class="btn small ghost" href="/logout">Logout</a>
+        {% else %}
+          <a class="btn small ghost" href="/login">Login</a>
+        {% endif %}
+      </div>
+    </div>
+
+    {% block content %}{% endblock %}
+  </div>
+</body>
+</html>

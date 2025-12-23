@@ -38,3 +38,4 @@ ollama/
 .ollama/
 data/ollama/
 MVP/app/alembic/versions/*
+product_presentation.pptx

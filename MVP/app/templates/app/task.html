@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block content %}
+
+{% if refresh_sec %}
+  <meta http-equiv="refresh" content="{{ refresh_sec }}">
+{% endif %}
+
+<div class="panel">
+  <div class="row" style="justify-content: space-between;">
+    <div>
+      <h2 class="h2">Task #{{ task.id }}</h2>
+      <div class="muted">
+        Status: <span class="status {{ status }}">{{ status }}</span>
+        · Request: <a class="link" href="/app/requests/{{ request_id }}">#{{ request_id }}</a>
+      </div>
+    </div>
+    <div class="row">
+      <a class="btn" href="/app">Back</a>
+      <a class="btn" href="/app/tasks/{{ task.id }}">Refresh</a>
+    </div>
+  </div>
+
+  {% if task.error %}
+    <div class="notice err">{{ task.error }}</div>
+  {% endif %}
+
+  <div class="card">
+    {% if status in ("pending", "running") %}
+      <div class="muted">
+        Processing… page auto-refreshes every {{ refresh_sec }}s.
+      </div>
+    {% elif status == "success" %}
+      <div class="notice ok">Done</div>
+      <div class="row">
+        <a class="btn primary" href="/app/requests/{{ request_id }}">Open result</a>
+      </div>
+    {% else %}
+      <div class="notice err">Failed</div>
+    {% endif %}
+
+    {% if best_image %}
+      <div class="spacer"></div>
+      <div class="imgbox">
+        <img src="{{ best_image }}" alt="best">
+      </div>
+    {% endif %}
+  </div>
+
+</div>
+
+{% endblock %}

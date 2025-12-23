@@ -1,0 +1,16 @@
+services:
+  tests:
+    build:
+      context: ./app
+      dockerfile: Dockerfile
+    env_file:
+      - ./.env
+    environment:
+      - PYTHONPATH=/app
+      - APP_ENV=test
+    volumes:
+      - ./app:/app
+      - ./tests:/tests
+      - ./pytest.ini:/pytest.ini
+    working_dir: /
+    command: ["pytest", "-q"]

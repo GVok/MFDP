@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="hero">
+    <div class="hero-card">
+        <div class="badge">MVP</div>
+        <h1>Prompt Enhancer & Image Judge</h1>
+        <p class="subtitle">
+            Premium prompt → images → ranking.
+        </p>
+
+        {% if user %}
+            <div class="userline">
+                Signed in as <span class="user">{{ user.username }}</span>
+            </div>
+
+            <div class="actions">
+                <a class="btn primary" href="/app">Open App</a>
+                <a class="btn" href="/account">Account</a>
+                <a class="btn ghost" href="/logout">Logout</a>
+            </div>
+        {% else %}
+            <div class="actions">
+                <a class="btn primary" href="/login">Sign in</a>
+                <a class="btn" href="/register">Create account</a>
+            </div>
+        {% endif %}
+
+        <div class="mini">
+            <div class="mini-item">
+                <div class="mini-title">Enhance</div>
+                <div class="mini-text">Russian → premium English prompt</div>
+            </div>
+            <div class="mini-item">
+                <div class="mini-title">Generate</div>
+                <div class="mini-text">Mock/SD</div>
+            </div>
+            <div class="mini-item">
+                <div class="mini-title">Judge</div>
+                <div class="mini-text">CLIPScore + Aesthetic</div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

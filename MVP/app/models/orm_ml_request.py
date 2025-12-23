@@ -34,7 +34,8 @@ class MLRequestEntity(Base, BaseEntity):
         "PredictionEntity",
         back_populates="request",
         cascade="all, delete-orphan",
-    )
+        order_by="PredictionEntity.rank",
+        )
 
     transactions = relationship(
         "TransactionEntity",

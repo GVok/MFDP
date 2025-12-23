@@ -1,0 +1,129 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="panel">
+  <div class="app-head">
+    <div>
+      <h2 class="h2">Generate</h2>
+      <div class="muted">
+        Plan: <span class="pill">{{ plan.code }}</span>
+        · Balance: <b>{{ wallet.balance_rub }} ₽</b>
+        · This month: <b>{{ usage.images_generated }}</b>
+        {% if plan.monthly_images_limit %}
+          / <b>{{ plan.monthly_images_limit }}</b>
+        {% else %}
+          / <b>∞</b>
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="row">
+      <a class="btn" href="/account">Account</a>
+      <a class="btn ghost" href="/">Home</a>
+    </div>
+  </div>
+
+  {% if error %}
+    <div class="notice err">{{ error }}</div>
+  {% endif %}
+  {% if ok %}
+    <div class="notice ok">{{ ok }}</div>
+  {% endif %}
+
+  <div class="card">
+    <form method="post" action="/app/generate" class="form">
+      <label class="label">Prompt</label>
+      <textarea class="textarea" name="raw_prompt" rows="4" placeholder="Например: Баннер единорога со скидкой 30%" required></textarea>
+
+      <div class="grid3">
+        <div>
+          <label class="label">Enhance</label>
+          <select class="select" name="enhance_backend">
+            <option value="ollama" selected>ollama</option>
+            <option value="mock">mock</option>
+          </select>
+        </div>
+
+        <div>
+          <label class="label">Image backend</label>
+          <select class="select" name="image_backend">
+            <option value="mock" selected>mock</option>
+            <option value="local">local (SD 1.5)</option>
+          </select>
+        </div>
+
+        <div>
+          <label class="label">N images</label>
+          <select class="select" name="n_images">
+            <option value="1" selected>1</option>
+            <option value="2">2</option>
+            <option value="3">3</option>
+            <option value="4">4</option>
+          </select>
+          <div class="muted" style="margin-top:6px;">
+            local обычно ограничивается до 2 в worker.
+          </div>
+        </div>
+      </div>
+
+      <div style="margin-top:10px;">
+        <label class="label">Brand profile</label>
+
+        {% if (plan.brand_profiles_limit or 0) <= 0 %}
+          <div class="muted">
+            Not available on your plan. Upgrade to Business/Pro to use Brand Profiles.
+          </div>
+          <input type="hidden" name="brand_profile_id" value="0">
+        {% else %}
+          <select class="select" name="brand_profile_id">
+            <option value="0" selected>— No brand profile —</option>
+            {% for bp in brand_profiles %}
+              <option value="{{ bp.id }}">{{ bp.name }}</option>
+            {% endfor %}
+          </select>
+          <div class="muted" style="margin-top:6px;">
+            Tip: create profiles in <a class="link" href="/account">Account</a>.
+          </div>
+        {% endif %}
+      </div>
+
+      <div class="row">
+        <button class="btn primary" type="submit">Generate</button>
+        <a class="btn" href="/app">Refresh</a>
+      </div>
+    </form>
+  </div>
+
+  <div class="spacer"></div>
+
+  <div class="card">
+    <div class="card-title">History</div>
+
+    {% if not history %}
+      <div class="muted">No requests yet.</div>
+    {% else %}
+      <div class="table">
+        <div class="tr th">
+          <div>ID</div>
+          <div>Status</div>
+          <div>Prompt</div>
+          <div>Actions</div>
+        </div>
+
+        {% for r in history %}
+          <div class="tr">
+            <div>#{{ r.id }}</div>
+            <div><span class="status {{ r.status }}">{{ r.status }}</span></div>
+            <div class="truncate">{{ r.raw_prompt }}</div>
+            <div class="row">
+              <a class="btn small" href="/app/requests/{{ r.id }}">Open</a>
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+    {% endif %}
+  </div>
+
+</div>
+
+{% endblock %}

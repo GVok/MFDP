@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="panel">
+  <h2 class="h2">Top up</h2>
+
+  {% if error %}
+    <div class="error">{{ error }}</div>
+  {% endif %}
+
+  <div class="card">
+    <form method="post" class="form">
+      <label class="label">Amount (₽)</label>
+      <input class="input" type="number" name="amount_rub" min="1" step="1" required>
+      <div class="row">
+        <button class="btn primary" type="submit">Add funds</button>
+        <a class="btn" href="/account">Back</a>
+      </div>
+    </form>
+  </div>
+</div>
+
+{% endblock %}
+

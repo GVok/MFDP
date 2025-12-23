@@ -10,6 +10,7 @@ class TransactionType(str, Enum):
     TOP_UP = "top_up"
     ML_CHARGE = "ml_charge"
     ADMIN_ADJUST = "admin_adjust"
+    SUBSCRIPTION = "subscription"
 
 
 class TaskStatus(str, Enum):

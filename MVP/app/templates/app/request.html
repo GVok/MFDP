@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="panel">
+  <div class="row" style="justify-content: space-between;">
+    <div>
+      <h2 class="h2">Request #{{ req.id }}</h2>
+      <div class="muted">Status: <span class="status {{ req.status }}">{{ req.status }}</span></div>
+    </div>
+    <div class="row">
+      <a class="btn" href="/app">Back</a>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Prompt</div>
+    <div class="mono">{{ req.raw_prompt }}</div>
+
+    {% if req.enhanced_prompt %}
+      <div class="spacer"></div>
+      <div class="card-title">Enhanced</div>
+      <div class="mono">{{ req.enhanced_prompt }}</div>
+    {% endif %}
+  </div>
+
+  <div class="spacer"></div>
+
+  <div class="card">
+    <div class="card-title">Predictions</div>
+
+    {% if not predictions %}
+      <div class="muted">No predictions yet.</div>
+    {% else %}
+      <div class="gallery">
+        {% for p in predictions %}
+          <div class="shot">
+            <div class="shot-meta">
+              <span class="pill">#{{ p.rank }}</span>
+              <span class="muted">final: <b>{{ "%.3f"|format(p.final_score or 0) }}</b></span>
+            </div>
+            <div class="imgbox">
+              <img src="{{ p.image_path }}" alt="img">
+            </div>
+            <div class="shot-scores">
+              <div class="muted">clip: <b>{{ "%.3f"|format(p.clip_score or 0) }}</b></div>
+              <div class="muted">aes: <b>{{ "%.3f"|format(p.aesthetic_score or 0) }}</b></div>
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+    {% endif %}
+  </div>
+
+</div>
+
+{% endblock %}

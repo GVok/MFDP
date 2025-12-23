@@ -2,10 +2,16 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from api.deps import get_db, get_current_user
-from schemas.ml import CreateMLRequestIn, CreateMLRequestOut, MLRequestOut, MLHistoryOut, MLTaskOut
+from schemas.ml import (
+    CreateMLRequestIn,
+    CreateMLRequestOut,
+    MLRequestOut,
+    MLHistoryOut,
+    MLTaskOut,
+    PredictionOut,
+)
 from models.orm_user import UserEntity
 from services.ml_service import create_ml_request, list_user_requests, get_request, get_task
-
 
 router = APIRouter(prefix="/ml", tags=["ML"])
 
@@ -24,6 +30,7 @@ def create_request(
             enhance_backend=data.enhance_backend,
             image_backend=data.image_backend,
             n_images=data.n_images,
+            brand_profile_id=data.brand_profile_id,
         )
     except ValueError as e:
         raise HTTPException(status_code=402, detail=str(e))
@@ -38,7 +45,21 @@ def read_request(request_id: int, user: UserEntity = Depends(get_current_user), 
     req = get_request(db, user.id, request_id)
     if not req:
         raise HTTPException(status_code=404, detail="Request not found")
-    return req
+
+    preds = list(req.predictions or [])
+    best_pred = None
+
+    ranked = [p for p in preds if p.rank is not None]
+    if ranked:
+        best_pred = sorted(ranked, key=lambda p: p.rank)[0]
+    else:
+        scored = [p for p in preds if p.final_score is not None]
+        if scored:
+            best_pred = sorted(scored, key=lambda p: p.final_score, reverse=True)[0]
+
+    out = MLRequestOut.model_validate(req)
+    out.best = PredictionOut.model_validate(best_pred) if best_pred else None
+    return out
 
 
 @router.get("/history", response_model=MLHistoryOut)

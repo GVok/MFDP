@@ -14,7 +14,6 @@ import pika
 from dotenv import load_dotenv
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-import requests
 
 sys.path.append("/app")
 
@@ -22,11 +21,15 @@ from models.enums import TaskStatus
 from models.orm_ml_task import MLTaskEntity
 from models.orm_prediction import PredictionEntity
 from models.orm_ml_request import MLRequestEntity
+from models.orm_usage import UserMonthlyUsageEntity
 
 import torch
 import torch.nn as nn
 from transformers import CLIPProcessor, CLIPModel, CLIPVisionModelWithProjection
 from PIL import Image
+
+from diffusers import StableDiffusionPipeline, EulerAncestralDiscreteScheduler
+
 
 load_dotenv()
 
@@ -36,20 +39,21 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 
 IMAGES_DIR = os.getenv("IMAGES_DIR", "/data/images")
 
+import requests
+
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://ollama:11434").rstrip("/")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5:1.5b")
 OLLAMA_KEEP_ALIVE = os.getenv("OLLAMA_KEEP_ALIVE", "30s")
 OLLAMA_TIMEOUT_SEC = float(os.getenv("OLLAMA_TIMEOUT_SEC", "120"))
 ENHANCE_MAX_TOKENS = int(os.getenv("ENHANCE_MAX_TOKENS", "200"))
 
-HF_TOKEN = os.getenv("HF_TOKEN", "")
-HF_T2I_MODEL = os.getenv("HF_T2I_MODEL", "stabilityai/sdxl-turbo")
-HF_T2I_WIDTH = int(os.getenv("HF_T2I_WIDTH", "512"))
-HF_T2I_HEIGHT = int(os.getenv("HF_T2I_HEIGHT", "512"))
-HF_T2I_STEPS = int(os.getenv("HF_T2I_STEPS", "4"))
-HF_T2I_GUIDANCE = float(os.getenv("HF_T2I_GUIDANCE", "0.0"))
-HF_T2I_SEED = int(os.getenv("HF_T2I_SEED", "123"))
-HF_TIMEOUT_SEC = float(os.getenv("HF_TIMEOUT_SEC", "120"))
+LOCAL_SD_MODEL = os.getenv("LOCAL_SD_MODEL", "runwayml/stable-diffusion-v1-5")
+LOCAL_SD_WIDTH = int(os.getenv("LOCAL_SD_WIDTH", "512"))
+LOCAL_SD_HEIGHT = int(os.getenv("LOCAL_SD_HEIGHT", "512"))
+LOCAL_SD_STEPS = int(os.getenv("LOCAL_SD_STEPS", "20"))
+LOCAL_SD_GUIDANCE = float(os.getenv("LOCAL_SD_GUIDANCE", "7.0"))
+LOCAL_SD_SEED = int(os.getenv("LOCAL_SD_SEED", "123"))
+LOCAL_SD_TIMEOUT_SEC = float(os.getenv("LOCAL_SD_TIMEOUT_SEC", "300"))
 
 CLIP_MODEL_NAME = os.getenv("CLIP_MODEL_NAME", "openai/clip-vit-base-patch32")
 AES_WEIGHTS_URL = os.getenv(
@@ -68,7 +72,29 @@ BRAND_STYLE_SHORT = os.getenv(
     "digital glossy accents, high-end commercial aesthetic",
 )
 
-SYSTEM_PROMPT = f"""
+def build_system_prompt(brand_style_short: str) -> str:
+    brand_style_short = (brand_style_short or "").strip()
+
+    if not brand_style_short:
+        return """
+You are a Prompt Enhancer for an image generation system.
+
+Your job:
+- Take short, messy, mixed-language user prompts (mostly Russian).
+- Normalize them into clean, detailed English prompts for image generation.
+
+General rules:
+1. Output ONLY the final enhanced prompt (no explanations, no comments).
+2. Always respond in English.
+3. Keep the original user intent (platform, goal, mood) but make the visual more premium, modern and minimalistic.
+4. If platform/goal are given, adapt composition accordingly:
+   - instagram_story / reels: vertical, strong focal point, works with overlaid text.
+   - banner / website_visual: more space for text, clear hierarchy.
+   - product_shot: focus on product, clean background.
+   - promotion / sale: strong typography, high contrast, clear call-to-action space.
+""".strip()
+
+    return f"""
 You are a Prompt Enhancer for an image generation system.
 
 Your job:
@@ -77,21 +103,20 @@ Your job:
 - Always follow the given brand visual style.
 
 Default brand style:
-{BRAND_STYLE_SHORT}
+{brand_style_short}
 
 General rules:
 1. Output ONLY the final enhanced prompt (no explanations, no comments).
 2. Always respond in English.
 3. Keep the original user intent (platform, goal, mood) but:
    - make the visual more premium, modern and minimalistic,
-   - integrate the brand style (soft purple gradients, clean composition, premium digital aesthetic).
+   - integrate the brand style implicitly (do not mention "brand style" explicitly).
 4. If platform/goal are given, adapt composition accordingly:
    - instagram_story / reels: vertical, strong focal point, works with overlaid text.
    - banner / website_visual: more space for text, clear hierarchy.
    - product_shot: focus on product, clean background.
    - promotion / sale: strong typography, high contrast, clear call-to-action space.
 5. DO NOT mention 'brand style' or color codes explicitly in the prompt.
-   Instead, implicitly apply them as visual characteristics.
 """.strip()
 
 if not DATABASE_URL:
@@ -99,6 +124,27 @@ if not DATABASE_URL:
 
 engine = create_engine(DATABASE_URL, pool_pre_ping=True)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+def _yyyymm(dt: datetime) -> int:
+    return dt.year * 100 + dt.month
+
+
+def add_usage_images(db, user_id: int, n_images: int) -> None:
+    ym = _yyyymm(datetime.utcnow())
+    row = (
+        db.query(UserMonthlyUsageEntity)
+        .filter(
+            UserMonthlyUsageEntity.user_id == user_id,
+            UserMonthlyUsageEntity.period_yyyymm == ym,
+        )
+        .first()
+    )
+    if not row:
+        row = UserMonthlyUsageEntity(user_id=user_id, period_yyyymm=ym, images_generated=0)
+        db.add(row)
+        db.flush()
+
+    row.images_generated += int(n_images)
 
 
 def connect_with_retry(params: pika.URLParameters, retries: int = 10, delay: int = 5) -> pika.BlockingConnection:
@@ -110,7 +156,6 @@ def connect_with_retry(params: pika.URLParameters, retries: int = 10, delay: int
             print(f"Connection failed: {e}. Retrying in {delay} seconds...")
             time.sleep(delay)
     raise RuntimeError("Failed to connect to RabbitMQ after multiple retries.")
-
 
 def _strip_emoji(text: str) -> str:
     try:
@@ -212,13 +257,21 @@ def _ollama_try_post(path: str, payload: Dict[str, Any]) -> requests.Response:
     return requests.post(url, json=payload, timeout=OLLAMA_TIMEOUT_SEC)
 
 
-def ollama_enhance_prompt(raw_prompt: str, cleaned_prompt: str, platform: str, goal: str) -> str:
+def ollama_enhance_prompt(
+    raw_prompt: str,
+    cleaned_prompt: str,
+    platform: str,
+    goal: str,
+    *,
+    system_prompt: str,
+    brand_style_short: str,
+) -> str:
     user_content = build_user_content(
         raw_prompt=raw_prompt,
         cleaned_prompt=cleaned_prompt,
         platform=platform,
         goal=goal,
-        brand_style=BRAND_STYLE_SHORT,
+        brand_style=brand_style_short,
     )
 
     last_err: Exception | None = None
@@ -228,7 +281,7 @@ def ollama_enhance_prompt(raw_prompt: str, cleaned_prompt: str, platform: str, g
         "stream": False,
         "keep_alive": OLLAMA_KEEP_ALIVE,
         "messages": [
-            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_content},
         ],
         "options": {"temperature": 0.7, "top_p": 0.9, "num_predict": ENHANCE_MAX_TOKENS},
@@ -251,7 +304,7 @@ def ollama_enhance_prompt(raw_prompt: str, cleaned_prompt: str, platform: str, g
 
     gen_payload = {
         "model": OLLAMA_MODEL,
-        "prompt": f"{SYSTEM_PROMPT}\n\n{user_content}\n",
+        "prompt": f"{system_prompt}\n\n{user_content}\n",
         "stream": False,
         "keep_alive": OLLAMA_KEEP_ALIVE,
         "options": {"temperature": 0.7, "top_p": 0.9, "num_predict": ENHANCE_MAX_TOKENS},
@@ -276,7 +329,7 @@ def ollama_enhance_prompt(raw_prompt: str, cleaned_prompt: str, platform: str, g
         "model": OLLAMA_MODEL,
         "stream": False,
         "messages": [
-            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_content},
         ],
         "max_tokens": ENHANCE_MAX_TOKENS,
@@ -306,81 +359,6 @@ def ollama_enhance_prompt(raw_prompt: str, cleaned_prompt: str, platform: str, g
     )
 
 
-def hf_generate_image_bytes(
-    prompt: str,
-    *,
-    model: str,
-    width: int,
-    height: int,
-    steps: int,
-    guidance: float,
-    seed: int,
-    timeout_sec: float,
-) -> bytes:
-    if not HF_TOKEN:
-        raise RuntimeError("HF_TOKEN is not set (but image_backend=hf was requested)")
-
-    url = f"https://api-inference.huggingface.co/models/{model}"
-    headers = {"Authorization": f"Bearer {HF_TOKEN}"}
-
-    payload = {
-        "inputs": prompt,
-        "parameters": {
-            "width": width,
-            "height": height,
-            "num_inference_steps": steps,
-            "guidance_scale": guidance,
-            "seed": seed,
-        },
-        "options": {"wait_for_model": True},
-    }
-
-    last_err: Exception | None = None
-    for attempt in range(1, 6):
-        try:
-            r = requests.post(url, headers=headers, json=payload, timeout=timeout_sec)
-            if r.status_code == 503:
-                time.sleep(2.0 * attempt)
-                continue
-
-            r.raise_for_status()
-
-            ct = (r.headers.get("content-type") or "").lower()
-            if "image" not in ct:
-                try:
-                    j = r.json()
-                    raise RuntimeError(f"HF returned non-image response: {j}")
-                except Exception:
-                    raise RuntimeError(f"HF returned non-image response, content-type={ct}, body={r.text[:300]}")
-            return r.content
-
-        except Exception as e:
-            last_err = e
-            time.sleep(1.5 * attempt)
-
-    raise RuntimeError(f"HF generation failed after retries: {last_err}")
-
-
-def hf_image_bytes_to_png_bytes(img_bytes: bytes) -> bytes:
-    img = Image.open(BytesIO(img_bytes))
-
-    if img.mode == "RGBA":
-        bg = Image.new("RGB", img.size, (255, 255, 255))
-        bg.paste(img, mask=img.split()[-1])
-        img = bg
-    elif img.mode != "RGB":
-        img = img.convert("RGB")
-
-    out = BytesIO()
-    img.save(out, format="PNG", optimize=True)
-    return out.getvalue()
-
-
-def save_hf_image_as_png(abs_path: Path, img_bytes: bytes) -> None:
-    abs_path.parent.mkdir(parents=True, exist_ok=True)
-    abs_path.write_bytes(hf_image_bytes_to_png_bytes(img_bytes))
-
-
 def write_mock_image(path: Path, idx: int, width: int = 512, height: int = 512) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     img = Image.new("RGB", (width, height))
@@ -394,13 +372,75 @@ def write_mock_image(path: Path, idx: int, width: int = 512, height: int = 512) 
     img.save(path, format="PNG")
 
 
+_SD_PIPE: Optional[StableDiffusionPipeline] = None
+_SD_DEVICE: Optional[torch.device] = None
+
+
+def _get_sd_device() -> torch.device:
+    return torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
+
+
+def load_sd_pipe() -> StableDiffusionPipeline:
+    global _SD_PIPE, _SD_DEVICE
+    if _SD_PIPE is not None:
+        return _SD_PIPE
+
+    _SD_DEVICE = _get_sd_device()
+    print(f"[sd] loading {LOCAL_SD_MODEL} on {_SD_DEVICE} ...")
+
+    dtype = torch.float16 if _SD_DEVICE.type == "cuda" else torch.float32
+
+    pipe = StableDiffusionPipeline.from_pretrained(
+        LOCAL_SD_MODEL,
+        torch_dtype=dtype,
+        safety_checker=None,
+        requires_safety_checker=False,
+    )
+
+    pipe.scheduler = EulerAncestralDiscreteScheduler.from_config(pipe.scheduler.config)
+
+    pipe = pipe.to(_SD_DEVICE)
+
+    pipe.enable_attention_slicing()
+    pipe.enable_vae_slicing()
+
+    try:
+        pipe.enable_xformers_memory_efficient_attention()
+        print("[sd] xformers enabled")
+    except Exception:
+        pass
+
+    _SD_PIPE = pipe
+    return _SD_PIPE
+
+
+def local_generate_image_png_bytes(prompt: str, seed: int) -> bytes:
+    pipe = load_sd_pipe()
+    assert _SD_DEVICE is not None
+
+    gen = torch.Generator(device=_SD_DEVICE).manual_seed(int(seed))
+
+    out = pipe(
+        prompt=prompt,
+        num_inference_steps=LOCAL_SD_STEPS,
+        guidance_scale=LOCAL_SD_GUIDANCE,
+        width=LOCAL_SD_WIDTH,
+        height=LOCAL_SD_HEIGHT,
+        generator=gen,
+    )
+
+    img = out.images[0]
+    buf = BytesIO()
+    img.save(buf, format="PNG", optimize=True)
+    return buf.getvalue()
+
 _CLIP_MODEL: Optional[CLIPModel] = None
 _CLIP_PROC: Optional[CLIPProcessor] = None
 _AES_VISION: Optional[CLIPVisionModelWithProjection] = None
 _AES_HEAD: Optional[nn.Linear] = None
 
 
-def _get_device() -> torch.device:
+def _get_judge_device() -> torch.device:
     return torch.device("cpu")
 
 
@@ -409,7 +449,7 @@ def load_judge_models() -> None:
     if _CLIP_MODEL is not None and _CLIP_PROC is not None and _AES_VISION is not None and _AES_HEAD is not None:
         return
 
-    device = _get_device()
+    device = _get_judge_device()
     print(f"[judge] loading CLIP: {CLIP_MODEL_NAME} on {device} ...")
 
     _CLIP_PROC = CLIPProcessor.from_pretrained(CLIP_MODEL_NAME)
@@ -437,26 +477,43 @@ def normalize_aesthetic(aes: float) -> float:
 
 
 @torch.no_grad()
-def compute_clip_similarity_01(image: Image.Image, text: str) -> float:
-    assert _CLIP_MODEL and _CLIP_PROC
-    inputs = _CLIP_PROC(text=[text], images=[image], return_tensors="pt", padding=True)
-    inputs = {k: v.to(_get_device()) for k, v in inputs.items()}
+def compute_clip_similarity_01(img: Image.Image, text: str) -> float:
+    global _CLIP_MODEL, _CLIP_PROC
+    assert _CLIP_MODEL is not None and _CLIP_PROC is not None, "Judge models not loaded"
+
+    max_len = getattr(_CLIP_PROC.tokenizer, "model_max_length", 77)
+    max_len = min(int(max_len), 77)
+
+    inputs = _CLIP_PROC(
+        text=[text],
+        images=img,
+        return_tensors="pt",
+        padding=True,
+        truncation=True,
+        max_length=max_len,
+    )
+
+    device = next(_CLIP_MODEL.parameters()).device
+    inputs = {k: v.to(device) for k, v in inputs.items()}
+
     out = _CLIP_MODEL(**inputs)
 
-    img = out.image_embeds
-    txt = out.text_embeds
-    img = img / img.norm(dim=-1, keepdim=True)
-    txt = txt / txt.norm(dim=-1, keepdim=True)
+    image_embeds = out.image_embeds
+    text_embeds = out.text_embeds
 
-    sim = (img * txt).sum(dim=-1).item()
-    return clamp01((sim + 1.0) / 2.0)
+    image_embeds = image_embeds / image_embeds.norm(dim=-1, keepdim=True)
+    text_embeds = text_embeds / text_embeds.norm(dim=-1, keepdim=True)
+
+    sim = (image_embeds * text_embeds).sum(dim=-1).item()
+    return float((sim + 1.0) / 2.0)
+
 
 
 @torch.no_grad()
 def compute_aesthetic_score(image: Image.Image) -> float:
     assert _AES_VISION and _AES_HEAD and _CLIP_PROC
     inputs = _CLIP_PROC(images=[image], return_tensors="pt")
-    pixel_values = inputs["pixel_values"].to(_get_device())
+    pixel_values = inputs["pixel_values"].to(_get_judge_device())
 
     out = _AES_VISION(pixel_values=pixel_values)
     img_emb = out.image_embeds
@@ -470,23 +527,19 @@ def final_score(clip_n: float, aes_n: float) -> float:
     s = FINAL_W_CLIP * clip_n + FINAL_W_AES * aes_n
     return clamp01(float(s))
 
-
 def _pick_backends(payload: Dict[str, Any]) -> tuple[str, str, int]:
     enhance_backend = (payload.get("enhance_backend") or "").lower().strip()
     image_backend = (payload.get("image_backend") or "").lower().strip()
     n_images = int(payload.get("n_images") or 1)
 
-    if not enhance_backend:
-        mode = (payload.get("mode") or "").lower().strip()
-        enhance_backend = "mock" if mode == "mock" else "ollama"
-
-    if image_backend not in ("hf", "mock"):
-        image_backend = "mock"
     if enhance_backend not in ("ollama", "mock"):
         enhance_backend = "ollama"
 
-    if image_backend == "hf":
-        n_images = 1
+    if image_backend not in ("mock", "local"):
+        image_backend = "mock"
+
+    if image_backend == "local":
+        n_images = max(1, min(n_images, 2))
     else:
         n_images = max(1, min(n_images, 4))
 
@@ -501,6 +554,15 @@ def run_inference(payload: Dict[str, Any]) -> Dict[str, Any]:
     platform = detect_platform(cleaned)
     goal = detect_goal(cleaned)
 
+    if "brand_style_short" in payload:
+        brand_style_short = (payload.get("brand_style_short") or "")
+    else:
+        brand_style_short = BRAND_STYLE_SHORT
+
+    brand_style_short = brand_style_short.strip()
+    system_prompt = build_system_prompt(brand_style_short)
+
+
     enhanced: Optional[str] = None
     if enhance_backend == "ollama":
         enhanced = ollama_enhance_prompt(
@@ -508,6 +570,8 @@ def run_inference(payload: Dict[str, Any]) -> Dict[str, Any]:
             cleaned_prompt=cleaned,
             platform=platform,
             goal=goal,
+            system_prompt=system_prompt,
+            brand_style_short=brand_style_short,
         )
 
     prompt_for_image = enhanced or cleaned or raw_prompt
@@ -521,24 +585,23 @@ def run_inference(payload: Dict[str, Any]) -> Dict[str, Any]:
         "enhance_backend": enhance_backend,
         "image_backend": image_backend,
         "n_images": n_images,
-        "seed": HF_T2I_SEED if image_backend == "hf" else None,
-        "model": HF_T2I_MODEL if image_backend == "hf" else "mock_image",
-        "steps": HF_T2I_STEPS if image_backend == "hf" else None,
-        "width": HF_T2I_WIDTH,
-        "height": HF_T2I_HEIGHT,
-        "guidance": HF_T2I_GUIDANCE if image_backend == "hf" else None,
+        "width": LOCAL_SD_WIDTH,
+        "height": LOCAL_SD_HEIGHT,
+        "seed": LOCAL_SD_SEED,
+        "model": LOCAL_SD_MODEL if image_backend == "local" else "mock_image",
+        "steps": LOCAL_SD_STEPS if image_backend == "local" else None,
+        "guidance": LOCAL_SD_GUIDANCE if image_backend == "local" else None,
         "ollama_model": OLLAMA_MODEL,
         "ollama_keep_alive": OLLAMA_KEEP_ALIVE,
         "prompt_for_image": prompt_for_image,
+        "brand_style_short_used": brand_style_short,
+        "brand_profile_id": payload.get("brand_profile_id"),
+        "brand_profile_name": payload.get("brand_profile_name"),
     }
 
 
 def _should_requeue(exc: Exception) -> bool:
-    msg = str(exc).lower()
-    if "404" in msg or "401" in msg or "not found" in msg:
-        return False
-    return True
-
+    return False
 
 def process_message(ch, method, properties, body: bytes):
     print(f"Received task message: {body!r}")
@@ -552,6 +615,9 @@ def process_message(ch, method, properties, body: bytes):
         return
 
     db = SessionLocal()
+    req: MLRequestEntity | None = None
+    generated: List[Tuple[str, Path]] = []
+
     try:
         task: MLTaskEntity | None = db.query(MLTaskEntity).filter(MLTaskEntity.id == task_id).first()
         if not task:
@@ -568,43 +634,38 @@ def process_message(ch, method, properties, body: bytes):
         task.error = None
         db.commit()
 
-        gen_meta = run_inference(task.payload or {})
-
-        req: MLRequestEntity | None = (
+        req = (
             db.query(MLRequestEntity)
             .filter(MLRequestEntity.id == task.request_id, MLRequestEntity.user_id == task.user_id)
             .first()
         )
         if req:
+            req.status = TaskStatus.RUNNING.value
+            db.commit()
+
+        gen_meta = run_inference(task.payload or {})
+
+        if req:
             req.cleaned_prompt = gen_meta.get("cleaned_prompt")
             req.enhanced_prompt = gen_meta.get("enhanced_prompt")
-            req.status = TaskStatus.RUNNING.value
+            db.commit()
 
         images_dir = Path(IMAGES_DIR)
         images_dir.mkdir(parents=True, exist_ok=True)
 
         n_images = int(gen_meta.get("n_images") or 1)
         prompt_for_image = gen_meta.get("prompt_for_image") or ""
-
-        generated: List[Tuple[str, Path]] = []
+        backend = gen_meta.get("image_backend") or "mock"
 
         for i in range(n_images):
             filename = f"{task.request_id}_{task.id}_{i}_{uuid4().hex}.png"
             abs_path = images_dir / filename
-            public_path = f"/static/images/{filename}"
+            public_path = f"/media/{filename}"
 
-            if gen_meta.get("image_backend") == "hf":
-                img_bytes = hf_generate_image_bytes(
-                    prompt_for_image,
-                    model=gen_meta.get("model") or HF_T2I_MODEL,
-                    width=int(gen_meta.get("width") or HF_T2I_WIDTH),
-                    height=int(gen_meta.get("height") or HF_T2I_HEIGHT),
-                    steps=int(gen_meta.get("steps") or HF_T2I_STEPS),
-                    guidance=float(gen_meta.get("guidance") or HF_T2I_GUIDANCE),
-                    seed=int(gen_meta.get("seed") or HF_T2I_SEED),
-                    timeout_sec=HF_TIMEOUT_SEC,
-                )
-                save_hf_image_as_png(abs_path, img_bytes)
+            if backend == "local":
+                img_bytes = local_generate_image_png_bytes(prompt_for_image, seed=LOCAL_SD_SEED + i)
+                abs_path.parent.mkdir(parents=True, exist_ok=True)
+                abs_path.write_bytes(img_bytes)
             else:
                 write_mock_image(
                     abs_path,
@@ -654,7 +715,7 @@ def process_message(ch, method, properties, body: bytes):
                     **gen_meta,
                     "saved_at": datetime.utcnow().isoformat(),
                     "image_abs_path": item["image_abs_path"],
-                    "provider": "huggingface_inference_api" if gen_meta.get("image_backend") == "hf" else "mock",
+                    "provider": "local_sd" if backend == "local" else "mock",
                     "judge": {
                         "clip_model": CLIP_MODEL_NAME,
                         "aes_weights_url": AES_WEIGHTS_URL,
@@ -684,6 +745,8 @@ def process_message(ch, method, properties, body: bytes):
 
         best = scored[0] if scored else None
 
+        add_usage_images(db, task.user_id, len(generated))
+
         task.result = {
             "best_image_path": best["image_path"] if best else None,
             "enhanced_prompt": gen_meta.get("enhanced_prompt"),
@@ -704,11 +767,15 @@ def process_message(ch, method, properties, body: bytes):
         traceback.print_exc()
 
         try:
-            task = db.query(MLTaskEntity).filter(MLTaskEntity.id == task_id).first()
-            if task:
-                task.status = TaskStatus.FAILED.value
-                task.error = str(e)
-                db.commit()
+            task2 = db.query(MLTaskEntity).filter(MLTaskEntity.id == task_id).first()
+            if task2:
+                task2.status = TaskStatus.FAILED.value
+                task2.error = str(e)
+
+            if req:
+                req.status = TaskStatus.FAILED.value
+
+            db.commit()
         except Exception:
             db.rollback()
 

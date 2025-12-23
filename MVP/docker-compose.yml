@@ -41,8 +41,8 @@ services:
     volumes:
       - ./app:/app:ro
       - ./worker:/worker
-      - ./app/models_store:/models_store:ro
       - ./data:/data
+      - ./data/hf_cache:/root/.cache/huggingface
     depends_on:
       - rabbitmq
       - database
@@ -50,6 +50,11 @@ services:
     environment:
       - PYTHONPATH=/app:/worker
     restart: on-failure
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - capabilities: [gpu]
 
   web-proxy:
     image: nginx:latest
@@ -82,4 +87,4 @@ services:
     volumes:
       - ./data/postgres:/var/lib/postgresql/data
 
-# docker compose up --build --scale worker=num *num число воркеров
+# docker compose up --build --scale worker=num
