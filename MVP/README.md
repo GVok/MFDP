@@ -26,6 +26,27 @@ PostgreSQL
 
 ---
 
+## Структура репозитория
+```bash
+.
+├── app/                # FastAPI приложение + web UI + API
+│   ├── api/            # роутеры (auth/ml/billing/wallet/brand_profiles/admin)
+│   ├── web/            # страницы Jinja2
+│   ├── models/         # ORM модели
+│   ├── services/       # бизнес-логика
+│   ├── alembic/        # миграции БД
+│   └── main.py         # entrypoint
+├── worker/             # ML воркер (RabbitMQ consumer)
+│   └── ml_worker.py    # core pipeline (enhance → generate → judge → rank)
+├── nginx/              # reverse proxy
+├── tests/              # pytest тесты
+├── docker-compose.yml
+├── docker-compose.test.yml
+└── README.md
+```
+
+---
+
 ## Quickstart (Docker)
 
 ### Требования
@@ -46,6 +67,12 @@ docker compose up --build
 
 ```bash
 docker compose exec app alembic upgrade head
+```
+
+4) Пулл модели
+
+```bash
+docker exec -it mvp-ollama-1 ollama pull qwen2.5:1.5b
 ```
 
 ---
@@ -243,7 +270,7 @@ S = 0.7 * clip_n + 0.3 * aes_n
 Запуск через docker `compose up --build`
 
 
---
+---
 
 
 ### 8. Пользователи, биллинг и подписки
@@ -285,6 +312,161 @@ S = 0.7 * clip_n + 0.3 * aes_n
   - кошелёк
   - подписка
   -brand profiles
+
+#### API: проверить без UI (Postman)
+
+После логина используйте Authorization: Bearer <token>.
+
+1) Подготовка окружения в Postman
+1. Создайте новое **Environment** в Postman.
+2. Добавьте переменные:
+  - `base_url` = `http://localhost/api`
+  - `token` = *(пусто, заполнится после логина)*
+3. Во всех запросах используйте: `{{base_url}}`
+
+2) Регистрация пользователя
+**POST** `{{base_url}}/auth/register`
+
+**Body (raw / JSON)**
+
+```json
+{
+  "username": "demo",
+  "email": "demo@example.com",
+  "password": "demo123"
+}
+```
+
+**Ожидаемый ответ**
+
+```json
+{
+  "message": "Registered"
+}
+```
+
+3) Логин и сохранение токена
+
+**POST** `{{base_url}}/auth/login`
+
+**Body**
+
+```json
+{
+  "username": "demo",
+  "password": "demo123"
+}
+```
+
+**Ожидаемый ответ**
+
+```json
+{
+    "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyX2lkIjoxLCJleHAiOjE3NjgzMTM0NjB9.OfXTM13gi48ex5JmvEEKjNorvx9VMb1D8nTCifjcWBo",
+    "token_type": "bearer"
+}
+```
+Во вкладке `Authorization` выберите `Auth type`: `Bearer token`, скопируйте `access_token` без кавычек и вставьте в поле `Token`.
+
+4) Получение текущего пользователя (проверка авторизации)
+
+**GET** `{{base_url}}/auth/me`
+
+**Ожидаемый ответ**
+
+```json
+{
+    "id": 1,
+    "username": "demo",
+    "email": "demo@example.com",
+    "is_admin": false,
+    "is_active": true
+}
+```
+
+5) Работа с кошельком и подписками
+
+**Баланс**
+**GET** `{{base_url}}/wallet/balance`
+
+**Пополнение**
+
+**POST** `{{base_url}}/wallet/top-up`
+
+**BODY**
+```json
+{
+  "amount_rub": 2000
+}
+```
+
+**Доступные тарифы**
+**GET** `{{base_url}}/billing/plans`
+
+**Текущая подписка**
+**GET** `{{base_url}}/billing/me`
+
+**Покупка подписки**
+**POST** `{{base_url}}/billing/subscribe`
+
+**BODY**
+```json
+{
+  "plan": "business"
+}
+```
+
+5) Создание бренд-профиля
+**POST** `{{base_url}}/brand-profiles`
+
+**BODY**
+```json
+{
+  "name": "Purple Minimal",
+  "style_short": "modern minimalistic premium, soft purple gradients, clean layout"
+}
+```
+6) Создание ML-запроса (асинхронно)
+
+**POST** `{{base_url}}/ml/requests`
+
+**BODY**
+```json
+{
+  "raw_prompt": "баннер для телеграма про скидки на подписку",
+  "enhance_backend": "ollama",
+  "image_backend": "mock",
+  "n_images": 4,
+  "brand_profile_id": 1
+}
+```
+**Ожидаемый ответ**
+
+```json
+{
+    "request_id": 1,
+    "task_id": 1,
+    "status": "pending"
+}
+```
+
+7) Проверка статуса задачи
+
+**GET** `{{base_url}}/ml/tasks/1`
+
+Статусы:
+- PENDING
+- RUNNING
+- SUCCESS
+- FAILED
+
+8) Получение результата запроса
+
+**GET** `{{base_url}}/ml/requests/1`
+
+8) История запросов
+
+**GET** `{{base_url}}/ml/history`
 
 ### 10. Тесты
 
