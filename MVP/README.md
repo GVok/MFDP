@@ -26,6 +26,89 @@ PostgreSQL
 
 ---
 
+## Quickstart (Docker)
+
+### Требования
+- Docker + Docker Compose
+- Порты: 80 (web), 15672 (RabbitMQ UI), 5432 (Postgres), 11434 (Ollama)
+
+### Запуск
+1) Создайте `.env` в корне (пример ниже).  
+2) Запустите сервисы:
+
+```bash
+docker compose up --build
+# масштабирование воркера при необходимости:
+# docker compose up --build --scale worker=2
+```
+
+3) Настроить миграции
+
+```bash
+docker compose exec app alembic upgrade head
+```
+
+---
+
+## Где открыть
+
+- Web UI: http://localhost/
+- RabbitMQ Management: http://localhost:15672/ (guest/guest)
+- Postgres: localhost:5432
+- Ollama: http://localhost:11434
+
+---
+
+## Конфигурация (.env)
+
+### Минимально необходимые переменные
+- DATABASE_URL
+- RABBITMQ_URL
+- OLLAMA_URL, OLLAMA_MODEL (если используете enhance_backend=ollama)
+- CLIP_MODEL_NAME, AES_WEIGHTS_URL (для Judge)
+- LOCAL_SD_MODEL и параметры (если используете image_backend=local)
+
+### Пример .env
+
+```bash
+APP_ENV=development
+APP_DEBUG=true
+APP_SECRET_KEY=supersecret
+
+POSTGRES_USER=ml_user
+POSTGRES_PASSWORD=ml_password
+POSTGRES_DB=ml_service
+POSTGRES_HOST=database
+POSTGRES_PORT=5432
+DATABASE_URL=postgresql+psycopg2://ml_user:ml_password@database:5432/ml_service
+
+RABBITMQ_HOST=rabbitmq
+RABBITMQ_PORT=5672
+RABBITMQ_USER=guest
+RABBITMQ_PASSWORD=guest
+RABBITMQ_URL=amqp://guest:guest@rabbitmq:5672/
+
+OLLAMA_URL=http://ollama:11434
+OLLAMA_MODEL=qwen2.5:1.5b
+OLLAMA_KEEP_ALIVE=30s
+OLLAMA_TIMEOUT_SEC=120
+ENHANCE_MAX_TOKENS=200
+
+CLIP_MODEL_NAME=openai/clip-vit-base-patch32
+AES_WEIGHTS_URL=https://github.com/LAION-AI/aesthetic-predictor/raw/main/sa_0_4_vit_b_32_linear.pth
+AES_MIN=1.0
+AES_MAX=10.0
+FINAL_W_CLIP=0.7
+FINAL_W_AES=0.3
+
+LOCAL_SD_MODEL=runwayml/stable-diffusion-v1-5
+LOCAL_SD_WIDTH=512
+LOCAL_SD_HEIGHT=512
+LOCAL_SD_STEPS=20
+LOCAL_SD_GUIDANCE=7.0
+LOCAL_SD_SEED=123
+
+```
 
 ## Что реализовано на данный момент
 
@@ -91,7 +174,7 @@ PostgreSQL
 ---
 
 
-### 3. Judge (оценка и ранжирование)
+### 4. Judge (оценка и ранжирование)
 
 Используется реальный ML-судья, а не заглушка.
 
@@ -118,7 +201,7 @@ S = 0.7 * clip_n + 0.3 * aes_n
 ---
 
 
-### 4. Хранение данных
+### 5. Хранение данных
 
 #### PostgreSQL
 Основные таблицы:
@@ -136,7 +219,7 @@ S = 0.7 * clip_n + 0.3 * aes_n
 ---
 
 
-### 5. Очереди и воркеры
+### 6. Очереди и воркеры
 - RabbitMQ
 - ml_worker:
     - слушает очередь
@@ -148,7 +231,7 @@ S = 0.7 * clip_n + 0.3 * aes_n
 ---
 
 
-### 6. Docker / Dev-окружение
+### 7. Docker / Dev-окружение
 Контейнеры:
 - app — FastAPI
 - worker — ML-воркер
@@ -163,7 +246,7 @@ S = 0.7 * clip_n + 0.3 * aes_n
 --
 
 
-### 7. Пользователи, биллинг и подписки
+### 8. Пользователи, биллинг и подписки
 
 #### Аутентификация
 - регистрация / логин
@@ -189,7 +272,7 @@ S = 0.7 * clip_n + 0.3 * aes_n
 ---
 
 
-### 8. Web UI (FastAPI + Jinja2)
+### 9. Web UI (FastAPI + Jinja2)
 
 Реализован полноценный UI:
 - `/` — landing
@@ -203,10 +286,7 @@ S = 0.7 * clip_n + 0.3 * aes_n
   - подписка
   -brand profiles
 
-
----
-
-### 9. Тесты
+### 10. Тесты
 
 Покрыты критические части сервиса.
 
